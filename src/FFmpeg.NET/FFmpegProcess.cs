@@ -58,7 +58,56 @@ namespace FFmpeg.NET
                 }
             }
         }
+        public (Task, Process) ExecuteStream(FFmpegParameters parameters, string ffmpegFilePath, CancellationToken cancellationToken = default)
+        {
+            var argumentBuilder = new FFmpegArgumentBuilder();
+            var arguments = argumentBuilder.Build(parameters);
+            var startInfo = GenerateStartInfo(ffmpegFilePath, arguments);
+            return ExecuteStream(startInfo, parameters, cancellationToken);
+        }
 
+        private (Task, Process) ExecuteStream(ProcessStartInfo startInfo, FFmpegParameters parameters, CancellationToken cancellationToken = default)
+        {
+            var messages = new List<string>();
+            Exception caughtException = null;
+
+            var ffmpegProcess = new Process() { StartInfo = startInfo };
+
+            ffmpegProcess.ErrorDataReceived += (sender, e) => OnData(new ConversionDataEventArgs(e.Data, parameters.InputFile, parameters.OutputFile));
+            ffmpegProcess.ErrorDataReceived += (sender, e) => FFmpegProcessOnErrorDataReceived(e, parameters, ref caughtException, messages);
+
+            Task finish = new Task(() =>
+            {
+                Task<int> task = null;
+                try
+                {
+                    task = ffmpegProcess.WaitForExitAsync(null, cancellationToken);
+                    task.Wait();
+                }
+                catch (Exception)
+                {
+                    // An exception occurs if the user cancels the operation by calling Cancel on the CancellationToken.
+                    // Exc.Message will be "A task was canceled." (in English).
+                    // task.IsCanceled will be true.
+                    if (task.IsCanceled)
+                    {
+                        throw new TaskCanceledException(task);
+                    }
+                    // I don't think this can occur, but if some other exception, rethrow it.
+                    throw;
+                }
+                if (caughtException != null || ffmpegProcess.ExitCode != 0)
+                {
+                    OnException(messages, parameters, ffmpegProcess.ExitCode, caughtException);
+                }
+                else
+                {
+                    OnConversionCompleted(new ConversionCompleteEventArgs(parameters.InputFile, parameters.OutputFile));
+                }
+            });
+            return (finish, ffmpegProcess);
+
+        }
         private void OnException(List<string> messages, FFmpegParameters parameters, int exitCode, Exception caughtException)
         {
             var exceptionMessage = GetExceptionMessage(messages);

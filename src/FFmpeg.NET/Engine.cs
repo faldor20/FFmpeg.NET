@@ -3,6 +3,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FFmpeg.NET.Extensions;
+using System.Diagnostics;
 
 namespace FFmpeg.NET
 {
@@ -87,6 +88,22 @@ namespace FFmpeg.NET
         {
             var parameters = new FFmpegParameters { CustomArguments = arguments };
             await ExecuteAsync(parameters, cancellationToken);
+        }
+
+        private  (Task, Process) ExecuteStream(FFmpegParameters parameters, CancellationToken cancellationToken = default)
+            {
+                var ffmpegProcess = new FFmpegProcess();
+                ffmpegProcess.Progress += OnProgress;
+                ffmpegProcess.Completed += OnComplete;
+                ffmpegProcess.Error += OnError;
+                ffmpegProcess.Data += OnData;
+                return ffmpegProcess.ExecuteStream(parameters, _ffmpegPath, cancellationToken);
+                
+            }
+        public (Task, Process)  ExecuteStream(string arguments, CancellationToken cancellationToken = default)
+        {
+            var parameters = new FFmpegParameters { CustomArguments = arguments };
+            return  ExecuteStream(parameters, cancellationToken);
         }
 
         private void OnProgress(ConversionProgressEventArgs e) => Progress?.Invoke(this, e);
